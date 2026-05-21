@@ -103,6 +103,7 @@ migrateMeetingFollowFlags();
 
 const BOOLEAN_SETTINGS = new Set([
   "useLocalWhisper",
+  "localLivePreview",
   "allowOpenAIFallback",
   "allowLocalFallback",
   "assemblyAiStreaming",
@@ -467,6 +468,8 @@ export interface SettingsState
 
   setUseLocalWhisper: (value: boolean) => void;
   setWhisperModel: (value: string) => void;
+  setLocalLivePreview: (value: boolean) => void;
+  setLocalInterimModel: (value: string) => void;
   setLocalTranscriptionProvider: (value: LocalTranscriptionProvider) => void;
   setParakeetModel: (value: string) => void;
   setAllowOpenAIFallback: (value: boolean) => void;
@@ -689,6 +692,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   uiLanguage: normalizeUiLanguage(isBrowser ? localStorage.getItem("uiLanguage") : null),
   useLocalWhisper: readBoolean("useLocalWhisper", false),
   whisperModel: readString("whisperModel", "base"),
+  localLivePreview: readBoolean("localLivePreview", false),
+  localInterimModel: readString("localInterimModel", "base"),
   localTranscriptionProvider: (readString("localTranscriptionProvider", "whisper") === "nvidia"
     ? "nvidia"
     : "whisper") as LocalTranscriptionProvider,
@@ -998,6 +1003,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 
   setUseLocalWhisper: createBooleanSetter("useLocalWhisper"),
   setWhisperModel: createStringSetter("whisperModel"),
+  setLocalLivePreview: createBooleanSetter("localLivePreview"),
+  setLocalInterimModel: createStringSetter("localInterimModel"),
   setLocalTranscriptionProvider: (value: LocalTranscriptionProvider) => {
     if (isBrowser) localStorage.setItem("localTranscriptionProvider", value);
     set({ localTranscriptionProvider: value });

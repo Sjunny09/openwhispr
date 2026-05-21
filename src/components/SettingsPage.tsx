@@ -722,6 +722,10 @@ export default function SettingsPage({
     setPauseMediaOnDictation,
     showTranscriptionPreview,
     setShowTranscriptionPreview,
+    localLivePreview,
+    setLocalLivePreview,
+    localInterimModel,
+    setLocalInterimModel,
     autoPasteEnabled,
     setAutoPasteEnabled,
     keepTranscriptionInClipboard,
@@ -3917,6 +3921,36 @@ EOF`,
                 {transcriptionMode === "local" &&
                   localTranscriptionProvider !== "nvidia" &&
                   renderWhisperVadSettings()}
+                {transcriptionMode === "local" && localTranscriptionProvider !== "nvidia" && (
+                  <SettingsPanel>
+                    <SettingsPanelRow>
+                      <SettingsRow
+                        label="Live meelezen (lokaal)"
+                        description="Toon tekst direct tijdens het praten met een snel model; je hoofdmodel corrigeert per zin op de achtergrond."
+                      >
+                        <Toggle checked={localLivePreview} onChange={setLocalLivePreview} />
+                      </SettingsRow>
+                    </SettingsPanelRow>
+                    {localLivePreview && (
+                      <SettingsPanelRow>
+                        <SettingsRow
+                          label="Snel model voor live preview"
+                          description="Kleiner = sneller live; je hoofdmodel bepaalt de uiteindelijke tekst."
+                        >
+                          <select
+                            className="border rounded-md px-2 py-1 bg-background text-sm"
+                            value={localInterimModel || "base"}
+                            onChange={(e) => setLocalInterimModel(e.target.value)}
+                          >
+                            <option value="tiny">Tiny (snelst)</option>
+                            <option value="base">Base (aanbevolen)</option>
+                            <option value="small">Small (nauwkeuriger)</option>
+                          </select>
+                        </SettingsRow>
+                      </SettingsPanelRow>
+                    )}
+                  </SettingsPanel>
+                )}
               </div>
             )}
             renderNoteRecording={() => (

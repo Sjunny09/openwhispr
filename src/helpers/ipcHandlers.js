@@ -12,6 +12,7 @@ const AssemblyAiStreaming = require("./assemblyAiStreaming");
 const { i18nMain, changeLanguage } = require("./i18nMain");
 const DeepgramStreaming = require("./deepgramStreaming");
 const OpenAIRealtimeStreaming = require("./openaiRealtimeStreaming");
+const LocalWhisperStreaming = require("./localWhisperStreaming");
 const AudioStorageManager = require("./audioStorage");
 const liveSpeakerIdentifier = require("./liveSpeakerIdentifier");
 const MeetingEchoLeakDetector = require("./meetingEchoLeakDetector");
@@ -292,6 +293,7 @@ class IPCHandlers {
     this.sessionId = crypto.randomUUID();
     this.assemblyAiStreaming = null;
     this.deepgramStreaming = null;
+    this.localStreaming = null;
     this._dictationStreaming = null;
     this._dictationConnectPromise = null;
     this._dictationIdleTimer = null;
@@ -7011,6 +7013,75 @@ class IPCHandlers {
         return { isConnected: false, sessionId: null };
       }
       return this.deepgramStreaming.getStatus();
+    });
+
+    // ---- Local whisper live streaming (offline live preview + background correction) ----
+    ipcMain.handle("local-streaming-warmup", async (_event, options = {}) => {
+      try {
+        if (!this.localStreaming) this.localStreaming = new LocalWhisperStreaming();
+        await this.localStreaming.warmup(options);
+        return { success: true };
+      } catch (error) {
+        debugLogger.error("Local streaming warmup error", { error: error.message });
+        return { success: false, error: error.message };
+      }
+    });
+
+    ipcMain.handle("local-streaming-start", async (event, options = {}) => {
+      try {
+        const win = BrowserWindow.fromWebContents(event.sender);
+        if (!this.localStreaming) this.localStreaming = new LocalWhisperStreaming();
+
+        this.localStreaming.onPartialTranscript = (text) => {
+          if (win && !win.isDestroyed()) win.webContents.send("local-partial-transcript", text);
+        };
+        this.localStreaming.onFinalTranscript = (text) => {
+          if (win && !win.isDestroyed()) win.webContents.send("local-final-transcript", text);
+        };
+        this.localStreaming.onError = (error) => {
+          if (win && !win.isDestroyed()) {
+            win.webContents.send("local-error", error?.message || String(error));
+          }
+        };
+        this.localStreaming.onSessionEnd = (data) => {
+          if (win && !win.isDestroyed()) win.webContents.send("local-session-end", data);
+        };
+
+        await this.localStreaming.connect(options);
+        return { success: true };
+      } catch (error) {
+        debugLogger.error("Local streaming start error", { error: error.message });
+        return { success: false, error: error.message };
+      }
+    });
+
+    ipcMain.on("local-streaming-send", (_event, audioBuffer) => {
+      try {
+        if (!this.localStreaming) return;
+        this.localStreaming.sendAudio(Buffer.from(audioBuffer));
+      } catch (error) {
+        debugLogger.error("Local streaming send error", { error: error.message });
+      }
+    });
+
+    ipcMain.on("local-streaming-finalize", () => {
+      this.localStreaming?.finalize();
+    });
+
+    ipcMain.handle("local-streaming-stop", async () => {
+      try {
+        let result = { text: "" };
+        if (this.localStreaming) result = await this.localStreaming.disconnect(true);
+        return { success: true, text: result?.text || "", model: "local-whisper" };
+      } catch (error) {
+        debugLogger.error("Local streaming stop error", { error: error.message });
+        return { success: false, error: error.message };
+      }
+    });
+
+    ipcMain.handle("local-streaming-status", async () => {
+      if (!this.localStreaming) return { isConnected: false };
+      return this.localStreaming.getStatus();
     });
 
     // Agent mode handlers

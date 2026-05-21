@@ -8,6 +8,8 @@ export interface TranscriptionSettings {
   uiLanguage: string;
   useLocalWhisper: boolean;
   whisperModel: string;
+  localLivePreview: boolean;
+  localInterimModel: string;
   localTranscriptionProvider: LocalTranscriptionProvider;
   parakeetModel: string;
   allowOpenAIFallback: boolean;
@@ -183,6 +185,8 @@ function useSettingsInternal() {
   return {
     useLocalWhisper: store.useLocalWhisper,
     whisperModel: store.whisperModel,
+    localLivePreview: store.localLivePreview,
+    localInterimModel: store.localInterimModel,
     uiLanguage: store.uiLanguage,
     localTranscriptionProvider: store.localTranscriptionProvider,
     parakeetModel: store.parakeetModel,
@@ -222,6 +226,8 @@ function useSettingsInternal() {
     theme: store.theme,
     setUseLocalWhisper: store.setUseLocalWhisper,
     setWhisperModel: store.setWhisperModel,
+    setLocalLivePreview: store.setLocalLivePreview,
+    setLocalInterimModel: store.setLocalInterimModel,
     setUiLanguage: store.setUiLanguage,
     setLocalTranscriptionProvider: store.setLocalTranscriptionProvider,
     setParakeetModel: store.setParakeetModel,

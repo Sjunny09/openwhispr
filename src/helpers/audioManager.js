@@ -108,6 +108,18 @@ const STREAMING_PROVIDERS = {
     onError: (cb) => window.electronAPI.onDictationRealtimeError(cb),
     onSessionEnd: (cb) => window.electronAPI.onDictationRealtimeSessionEnd(cb),
   },
+  local: {
+    warmup: (opts) => window.electronAPI.localStreamingWarmup(opts),
+    start: (opts) => window.electronAPI.localStreamingStart(opts),
+    send: (buf) => window.electronAPI.localStreamingSend(buf),
+    finalize: () => window.electronAPI.localStreamingFinalize(),
+    stop: () => window.electronAPI.localStreamingStop(),
+    status: () => window.electronAPI.localStreamingStatus(),
+    onPartial: (cb) => window.electronAPI.onLocalPartialTranscript(cb),
+    onFinal: (cb) => window.electronAPI.onLocalFinalTranscript(cb),
+    onError: (cb) => window.electronAPI.onLocalError(cb),
+    onSessionEnd: (cb) => window.electronAPI.onLocalSessionEnd(cb),
+  },
 };
 
 class AudioManager {
@@ -236,7 +248,11 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   getStreamingProvider() {
-    const { cloudTranscriptionModel } = getSettings();
+    const { cloudTranscriptionModel, useLocalWhisper } = getSettings();
+    // Local live preview runs fully offline via the local whisper provider.
+    if (useLocalWhisper) {
+      return STREAMING_PROVIDERS.local;
+    }
     if (REALTIME_MODELS.has(cloudTranscriptionModel)) {
       return STREAMING_PROVIDERS["openai-realtime"];
     }
@@ -246,6 +262,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
   }
 
   getStreamingProviderName() {
+    if (getSettings().useLocalWhisper) return "local";
     const defaultProvider = this.context === "notes" ? "deepgram" : "openai-realtime";
     return this.sttConfig?.streamingProvider || defaultProvider;
   }
@@ -2030,7 +2047,15 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
   shouldUseStreaming(isSignedInOverride) {
     const s = getSettings();
-    if (s.useLocalWhisper) return false;
+    if (s.useLocalWhisper) {
+      // Local live preview: stream via the offline whisper provider when enabled.
+      // Only for dictation/agent (not notes) and not when dictation is forced to batch.
+      return (
+        s.localLivePreview === true &&
+        this.context !== "notes" &&
+        this.sttConfig?.dictation?.mode !== "batch"
+      );
+    }
 
     // For dictation/agent: respect sttConfig mode from the API — this allows
     // batch mode even for realtime-capable models (e.g. gpt-4o-mini-transcribe).
@@ -2293,6 +2318,8 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           cloudTranscriptionModel,
           cloudTranscriptionMode,
           useLocalWhisper,
+          whisperModel,
+          localInterimModel,
         } = getSettings();
         const res = await provider.start({
           sampleRate: 16000,
@@ -2300,6 +2327,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           keyterms: this.getKeyterms(),
           model: cloudTranscriptionModel,
           mode: cloudTranscriptionMode === "byok" ? "byok" : "openwhispr",
+          // Local provider extras (ignored by cloud providers):
+          finalModel: useLocalWhisper ? whisperModel : undefined,
+          interimModel: useLocalWhisper ? localInterimModel || "base" : undefined,
+          initialPrompt: useLocalWhisper ? this.getCustomDictionaryPrompt() : undefined,
         });
 
         if (!res.success) {

@@ -548,6 +548,27 @@ contextBridge.exposeInMainWorld("electronAPI", {
     (callback) => (_event, data) => callback(data)
   ),
 
+  // Local Whisper Streaming (offline live preview + background correction)
+  localStreamingWarmup: (options) => ipcRenderer.invoke("local-streaming-warmup", options),
+  localStreamingStart: (options) => ipcRenderer.invoke("local-streaming-start", options),
+  localStreamingSend: (audioBuffer) => ipcRenderer.send("local-streaming-send", audioBuffer),
+  localStreamingFinalize: () => ipcRenderer.send("local-streaming-finalize"),
+  localStreamingStop: () => ipcRenderer.invoke("local-streaming-stop"),
+  localStreamingStatus: () => ipcRenderer.invoke("local-streaming-status"),
+  onLocalPartialTranscript: registerListener(
+    "local-partial-transcript",
+    (callback) => (_event, text) => callback(text)
+  ),
+  onLocalFinalTranscript: registerListener(
+    "local-final-transcript",
+    (callback) => (_event, text) => callback(text)
+  ),
+  onLocalError: registerListener("local-error", (callback) => (_event, error) => callback(error)),
+  onLocalSessionEnd: registerListener(
+    "local-session-end",
+    (callback) => (_event, data) => callback(data)
+  ),
+
   // Meeting transcription (streaming, dual-channel)
   meetingTranscriptionPrepare: (options) =>
     ipcRenderer.invoke("meeting-transcription-prepare", options),
