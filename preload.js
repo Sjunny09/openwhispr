@@ -682,6 +682,22 @@ contextBridge.exposeInMainWorld("electronAPI", {
   notifyHotkeyChanged: (hotkey) => ipcRenderer.send("hotkey-changed", hotkey),
   registerMeetingHotkey: (hotkey) => ipcRenderer.invoke("register-meeting-hotkey", hotkey),
 
+  // Screenshot tray
+  registerScreenshotHotkey: (hotkey) =>
+    ipcRenderer.invoke("register-screenshot-hotkey", hotkey),
+  getScreenshotTrayCount: () => ipcRenderer.invoke("screenshot-tray-count"),
+  clearScreenshotTray: () => ipcRenderer.invoke("clear-screenshot-tray"),
+  getScreenPermissionStatus: () => ipcRenderer.invoke("get-screen-permission-status"),
+  onScreenshotTrayUpdated: registerListener("screenshot-tray-updated"),
+
+  // Drag-annotation overlay (phase 2)
+  registerDragHotkey: (hotkey) => ipcRenderer.invoke("register-drag-hotkey", hotkey),
+  annotationDone: (dataUrl) => ipcRenderer.invoke("annotation-done", dataUrl),
+  annotationCancel: () => ipcRenderer.invoke("annotation-cancel"),
+  onAnnotationInit: registerListener("annotation-init"),
+  onAnnotationFinish: registerListener("annotation-finish"),
+  onAnnotationReset: registerListener("annotation-reset"),
+
   // Floating icon auto-hide
   notifyFloatingIconAutoHideChanged: (enabled) =>
     ipcRenderer.send("floating-icon-auto-hide-changed", enabled),

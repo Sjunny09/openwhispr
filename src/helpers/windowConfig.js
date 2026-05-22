@@ -258,10 +258,40 @@ const AGENT_OVERLAY_CONFIG = {
   },
 };
 
+// Fullscreen "freeze" overlay for drag-annotation (phase 2). Covers one display
+// with a frozen screenshot the user draws arrows on. Bounds are set per cursor
+// display in windowManager. transparent:true so there is no flash before the
+// snapshot paints; focusable:true and no setIgnoreMouseEvents so it captures all
+// input (the background is effectively frozen).
+const FREEZE_OVERLAY_CONFIG = {
+  frame: false,
+  alwaysOnTop: true,
+  transparent: true,
+  show: false,
+  skipTaskbar: true,
+  hasShadow: false,
+  focusable: true,
+  resizable: false,
+  movable: false,
+  fullscreenable: false,
+  enableLargerThanScreen: true,
+  acceptsFirstMouse: true,
+  type: FLOATING_OVERLAY_TYPE,
+  visibleOnAllWorkspaces: process.platform !== "win32",
+  webPreferences: {
+    preload: path.join(__dirname, "..", "..", "preload.js"),
+    nodeIntegration: false,
+    contextIsolation: true,
+    sandbox: true,
+    backgroundThrottling: false,
+  },
+};
+
 module.exports = {
   MAIN_WINDOW_CONFIG,
   CONTROL_PANEL_CONFIG,
   AGENT_OVERLAY_CONFIG,
+  FREEZE_OVERLAY_CONFIG,
   NOTIFICATION_WINDOW_CONFIG,
   TRANSCRIPTION_PREVIEW_CONFIG,
   TRANSCRIPTION_PREVIEW_SIZE_LIMITS,

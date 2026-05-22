@@ -273,6 +273,7 @@ class IPCHandlers {
     this.environmentManager = managers.environmentManager;
     this.databaseManager = managers.databaseManager;
     this.clipboardManager = managers.clipboardManager;
+    this.screenshotManager = managers.screenshotManager;
     this.whisperManager = managers.whisperManager;
     this.parakeetManager = managers.parakeetManager;
     this.diarizationManager = managers.diarizationManager;
@@ -1467,16 +1468,53 @@ class IPCHandlers {
           await new Promise((resolve) => setTimeout(resolve, 80));
         }
       }
-      const result = await this.clipboardManager.pasteText(text, {
-        ...options,
-        webContents: event.sender,
-      });
+      // Flush any collected screenshots into the same chat message, just above
+      // the dictated text. Captures are pasted one-by-one (chat inputs stack
+      // them as separate attachments). The clipboard is saved once and restored
+      // once around the whole batch so the user's original clipboard survives.
+      const sm = this.screenshotManager;
+      const hasShots = !!(sm && sm.getTrayCount() > 0);
+      const trimmedText = (text || "").trim();
+      let savedClipboard = null;
+      if (hasShots) {
+        savedClipboard = this.clipboardManager._saveClipboard();
+        for (const img of sm.takeAll()) {
+          try {
+            await this.clipboardManager.pasteImage(img, {
+              restoreClipboard: false,
+              allowClipboardFallback: true,
+              webContents: event.sender,
+            });
+            await new Promise((r) => setTimeout(r, 300));
+          } catch (err) {
+            debugLogger.warn("[Screenshot] Failed to paste tray image", { error: err.message });
+          }
+        }
+      }
+
+      let result;
+      if (trimmedText.length > 0 || !hasShots) {
+        result = await this.clipboardManager.pasteText(text, {
+          ...options,
+          webContents: event.sender,
+          ...(hasShots ? { restoreClipboard: false } : {}),
+        });
+      }
+
+      if (hasShots) {
+        setTimeout(() => {
+          try {
+            this.clipboardManager._restoreClipboard(savedClipboard);
+          } catch {}
+        }, 500);
+      }
+
       debugLogger.debug("[AutoLearn] Paste completed", {
         autoLearnEnabled: this._autoLearnEnabled,
         hasMonitor: !!this.textEditMonitor,
         targetPid,
       });
-      if (this.textEditMonitor && this._autoLearnEnabled) {
+      if (this.textEditMonitor && this._autoLearnEnabled && trimmedText.length > 0) {
         setTimeout(() => {
           try {
             debugLogger.debug("[AutoLearn] Starting monitoring", {
@@ -1511,6 +1549,38 @@ class IPCHandlers {
 
     ipcMain.handle("check-paste-tools", async () => {
       return this.clipboardManager.checkPasteTools();
+    });
+
+    // Screenshot tray (see screenshotManager.js + the screenshot hotkey in main.js)
+    ipcMain.handle("screenshot-tray-count", async () => {
+      return this.screenshotManager ? this.screenshotManager.getTrayCount() : 0;
+    });
+
+    ipcMain.handle("clear-screenshot-tray", async () => {
+      if (this.screenshotManager) this.screenshotManager.clearTray();
+      return true;
+    });
+
+    ipcMain.handle("get-screen-permission-status", async () => {
+      return this.screenshotManager ? this.screenshotManager.getScreenPermissionStatus() : "unknown";
+    });
+
+    // Drag-annotation overlay: commit the annotated frame to the tray, or cancel.
+    ipcMain.handle("annotation-done", async (_event, dataUrl) => {
+      if (this.screenshotManager && dataUrl) {
+        this.screenshotManager.addDataUrl(dataUrl);
+        this.windowManager?.mainWindow?.webContents?.send(
+          "screenshot-tray-updated",
+          this.screenshotManager.getTrayCount()
+        );
+      }
+      this.windowManager?.hideAnnotationOverlay();
+      return true;
+    });
+
+    ipcMain.handle("annotation-cancel", async () => {
+      this.windowManager?.hideAnnotationOverlay();
+      return true;
     });
 
     ipcMain.handle("transcribe-local-whisper", async (event, audioBlob, options = {}) => {

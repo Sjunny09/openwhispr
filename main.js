@@ -242,6 +242,7 @@ const EnvironmentManager = require("./src/helpers/environment");
 const WindowManager = require("./src/helpers/windowManager");
 const DatabaseManager = require("./src/helpers/database");
 const ClipboardManager = require("./src/helpers/clipboard");
+const ScreenshotManager = require("./src/helpers/screenshotManager");
 const WhisperManager = require("./src/helpers/whisper");
 const ParakeetManager = require("./src/helpers/parakeet");
 const DiarizationManager = require("./src/helpers/diarization");
@@ -274,6 +275,7 @@ let windowManager = null;
 let hotkeyManager = null;
 let databaseManager = null;
 let clipboardManager = null;
+let screenshotManager = null;
 let whisperManager = null;
 let parakeetManager = null;
 let diarizationManager = null;
@@ -349,6 +351,7 @@ function initializeCoreManagers() {
   hotkeyManager = windowManager.hotkeyManager;
   databaseManager = new DatabaseManager();
   clipboardManager = new ClipboardManager();
+  screenshotManager = new ScreenshotManager();
   whisperManager = new WhisperManager();
   if (process.platform !== "darwin") {
     whisperCudaManager = new WhisperCudaManager();
@@ -379,6 +382,7 @@ function initializeCoreManagers() {
     environmentManager,
     databaseManager,
     clipboardManager,
+    screenshotManager,
     whisperManager,
     parakeetManager,
     diarizationManager,
@@ -807,6 +811,9 @@ async function startApp() {
   // Create agent window (hidden) and set up agent hotkey
   await windowManager.createAgentWindow();
 
+  // Create the drag-annotation overlay (hidden) so it is loaded and ready.
+  await windowManager.createAnnotationWindow();
+
   const agentHotkeyCallback = () => {
     if (hotkeyManager.isInListeningMode()) return;
     windowManager.toggleAgentOverlay();
@@ -853,6 +860,114 @@ async function startApp() {
     } else {
       hotkeyManager.unregisterSlot("meeting");
       environmentManager.saveMeetingKey("");
+      return { success: true };
+    }
+  });
+
+  // Screenshot tray hotkey: native interactive region capture into the in-memory
+  // tray. The collected shots are pasted into the focused chat (before the
+  // dictated text) when dictation completes — see the "paste-text" IPC handler.
+  const SCREENSHOT_HOTKEY_DEFAULT = "CommandOrControl+Shift+2";
+  const screenshotHotkeyCallback = async () => {
+    if (hotkeyManager.isInListeningMode && hotkeyManager.isInListeningMode()) return;
+    // Capture the target app now so a montage can be pasted back even if the
+    // user never dictates (same mechanism dictation uses at hotkey-press time).
+    if (textEditMonitor) textEditMonitor.captureTargetPid();
+    try {
+      const captured = await screenshotManager.captureRegionToTray();
+      if (captured) {
+        windowManager.mainWindow?.webContents?.send(
+          "screenshot-tray-updated",
+          screenshotManager.getTrayCount()
+        );
+      }
+    } catch (err) {
+      debugLogger.warn("Screenshot capture failed", { error: err.message }, "screenshot");
+    }
+  };
+
+  const savedScreenshotKey = environmentManager.getScreenshotKey?.() || SCREENSHOT_HOTKEY_DEFAULT;
+  if (savedScreenshotKey) {
+    const result = await hotkeyManager.registerSlot(
+      "screenshot",
+      savedScreenshotKey,
+      screenshotHotkeyCallback
+    );
+    if (!result.success) {
+      debugLogger.warn(
+        "Failed to register screenshot hotkey",
+        { hotkey: savedScreenshotKey, error: result.error },
+        "screenshot"
+      );
+    }
+  }
+
+  ipcMain.handle("register-screenshot-hotkey", async (_event, hotkey) => {
+    if (hotkey) {
+      const result = await hotkeyManager.registerSlot(
+        "screenshot",
+        hotkey,
+        screenshotHotkeyCallback
+      );
+      if (result.success) {
+        environmentManager.saveScreenshotKey(hotkey);
+        return { success: true };
+      }
+      return { success: false, message: result.error };
+    } else {
+      hotkeyManager.unregisterSlot("screenshot");
+      environmentManager.saveScreenshotKey("");
+      return { success: true };
+    }
+  });
+
+  // Drag-annotation hotkey: first press freezes the cursor's display and shows
+  // the draw overlay; second press commits the annotated frame to the tray.
+  // NOT Cmd+Shift+3/4/5: those are reserved macOS screenshot shortcuts that the
+  // OS intercepts before Electron's globalShortcut sees them.
+  const DRAG_HOTKEY_DEFAULT = "CommandOrControl+Shift+1";
+  const dragHotkeyCallback = async () => {
+    if (hotkeyManager.isInListeningMode && hotkeyManager.isInListeningMode()) return;
+    if (windowManager.isAnnotationVisible()) {
+      windowManager.finishAnnotation();
+      return;
+    }
+    if (textEditMonitor) textEditMonitor.captureTargetPid();
+    try {
+      const snapshot = await screenshotManager.captureCursorDisplay();
+      if (snapshot) {
+        windowManager.showFreezeOverlay(snapshot);
+      } else {
+        debugLogger.warn("Drag-annotation: snapshot failed (screen permission?)", {}, "screenshot");
+      }
+    } catch (err) {
+      debugLogger.warn("Drag-annotation capture failed", { error: err.message }, "screenshot");
+    }
+  };
+
+  const savedDragKey = environmentManager.getDragKey?.() || DRAG_HOTKEY_DEFAULT;
+  if (savedDragKey) {
+    const result = await hotkeyManager.registerSlot("drag", savedDragKey, dragHotkeyCallback);
+    if (!result.success) {
+      debugLogger.warn(
+        "Failed to register drag hotkey",
+        { hotkey: savedDragKey, error: result.error },
+        "screenshot"
+      );
+    }
+  }
+
+  ipcMain.handle("register-drag-hotkey", async (_event, hotkey) => {
+    if (hotkey) {
+      const result = await hotkeyManager.registerSlot("drag", hotkey, dragHotkeyCallback);
+      if (result.success) {
+        environmentManager.saveDragKey(hotkey);
+        return { success: true };
+      }
+      return { success: false, message: result.error };
+    } else {
+      hotkeyManager.unregisterSlot("drag");
+      environmentManager.saveDragKey("");
       return { success: true };
     }
   });

@@ -531,6 +531,8 @@ export interface SettingsState
 
   setDictationKey: (key: string) => void;
   setMeetingKey: (key: string) => void;
+  setScreenshotKey: (key: string) => void;
+  setDragKey: (key: string) => void;
   setMeetingHotkeyLayoutMode: (mode: "side-panel" | "full-width") => void;
   setActivationMode: (mode: "tap" | "push") => void;
 
@@ -749,6 +751,8 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 
   dictationKey: readString("dictationKey", ""),
   meetingKey: readString("meetingKey", ""),
+  screenshotKey: readString("screenshotKey", ""),
+  dragKey: readString("dragKey", ""),
   meetingHotkeyLayoutMode: (readString("meetingHotkeyLayoutMode", "full-width") === "side-panel"
     ? "side-panel"
     : "full-width") as "side-panel" | "full-width",
@@ -1179,6 +1183,14 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   setMeetingKey: (key: string) => {
     if (isBrowser) localStorage.setItem("meetingKey", key);
     set({ meetingKey: key });
+  },
+  setScreenshotKey: (key: string) => {
+    if (isBrowser) localStorage.setItem("screenshotKey", key);
+    set({ screenshotKey: key });
+  },
+  setDragKey: (key: string) => {
+    if (isBrowser) localStorage.setItem("dragKey", key);
+    set({ dragKey: key });
   },
 
   setMeetingHotkeyLayoutMode: (mode: "side-panel" | "full-width") => {

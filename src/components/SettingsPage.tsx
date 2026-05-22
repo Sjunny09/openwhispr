@@ -696,6 +696,10 @@ export default function SettingsPage({
     setDictationKey,
     meetingKey,
     setMeetingKey,
+    screenshotKey,
+    setScreenshotKey,
+    dragKey,
+    setDragKey,
     meetingHotkeyLayoutMode,
     setMeetingHotkeyLayoutMode,
     autoLearnCorrections,
@@ -921,6 +925,38 @@ export default function SettingsPage({
       showErrorToast: true,
       showAlert: showAlertDialog,
       registerFn: meetingRegisterFn,
+    });
+
+  const screenshotRegisterFn = useCallback(async (hotkey: string) => {
+    const result = await window.electronAPI?.registerScreenshotHotkey?.(hotkey);
+    return result ?? { success: false, message: "Electron API unavailable" };
+  }, []);
+
+  const { registerHotkey: registerScreenshotHotkey, isRegistering: isScreenshotHotkeyRegistering } =
+    useHotkeyRegistration({
+      onSuccess: (registeredHotkey) => {
+        setScreenshotKey(registeredHotkey);
+      },
+      showSuccessToast: false,
+      showErrorToast: true,
+      showAlert: showAlertDialog,
+      registerFn: screenshotRegisterFn,
+    });
+
+  const dragRegisterFn = useCallback(async (hotkey: string) => {
+    const result = await window.electronAPI?.registerDragHotkey?.(hotkey);
+    return result ?? { success: false, message: "Electron API unavailable" };
+  }, []);
+
+  const { registerHotkey: registerDragHotkey, isRegistering: isDragHotkeyRegistering } =
+    useHotkeyRegistration({
+      onSuccess: (registeredHotkey) => {
+        setDragKey(registeredHotkey);
+      },
+      showSuccessToast: false,
+      showErrorToast: true,
+      showAlert: showAlertDialog,
+      registerFn: dragRegisterFn,
     });
 
   const validateDictationHotkey = useCallback(
@@ -3276,6 +3312,68 @@ EOF`,
                       </SelectItem>
                     </SelectContent>
                   </Select>
+                </SettingsPanelRow>
+              </SettingsPanel>
+            </div>
+
+            {/* Screenshot Hotkey */}
+            <div>
+              <SectionHeader
+                title={t("settingsPage.general.screenshotHotkey.title")}
+                description={t("settingsPage.general.screenshotHotkey.description")}
+              />
+              <SettingsPanel>
+                <SettingsPanelRow>
+                  <HotkeyInput
+                    value={screenshotKey}
+                    onChange={async (newHotkey) => {
+                      await registerScreenshotHotkey(newHotkey);
+                    }}
+                    disabled={isScreenshotHotkeyRegistering}
+                  />
+                  {screenshotKey && (
+                    <button
+                      onClick={async () => {
+                        await window.electronAPI?.registerScreenshotHotkey?.("");
+                        setScreenshotKey("");
+                      }}
+                      disabled={isScreenshotHotkeyRegistering}
+                      className="mt-2 text-xs text-muted-foreground/70 hover:text-foreground transition-colors disabled:opacity-50"
+                    >
+                      {t("settingsPage.general.screenshotHotkey.clear")}
+                    </button>
+                  )}
+                </SettingsPanelRow>
+              </SettingsPanel>
+            </div>
+
+            {/* Drag-annotation Hotkey */}
+            <div>
+              <SectionHeader
+                title={t("settingsPage.general.dragHotkey.title")}
+                description={t("settingsPage.general.dragHotkey.description")}
+              />
+              <SettingsPanel>
+                <SettingsPanelRow>
+                  <HotkeyInput
+                    value={dragKey}
+                    onChange={async (newHotkey) => {
+                      await registerDragHotkey(newHotkey);
+                    }}
+                    disabled={isDragHotkeyRegistering}
+                  />
+                  {dragKey && (
+                    <button
+                      onClick={async () => {
+                        await window.electronAPI?.registerDragHotkey?.("");
+                        setDragKey("");
+                      }}
+                      disabled={isDragHotkeyRegistering}
+                      className="mt-2 text-xs text-muted-foreground/70 hover:text-foreground transition-colors disabled:opacity-50"
+                    >
+                      {t("settingsPage.general.dragHotkey.clear")}
+                    </button>
+                  )}
                 </SettingsPanelRow>
               </SettingsPanel>
             </div>

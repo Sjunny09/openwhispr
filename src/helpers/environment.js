@@ -433,6 +433,26 @@ class EnvironmentManager {
     return result;
   }
 
+  getScreenshotKey() {
+    return this._getKey("SCREENSHOT_KEY");
+  }
+
+  saveScreenshotKey(key) {
+    const result = this._saveKey("SCREENSHOT_KEY", key);
+    this.saveAllKeysToEnvFile().catch(() => {});
+    return result;
+  }
+
+  getDragKey() {
+    return this._getKey("DRAG_KEY");
+  }
+
+  saveDragKey(key) {
+    const result = this._saveKey("DRAG_KEY", key);
+    this.saveAllKeysToEnvFile().catch(() => {});
+    return result;
+  }
+
   getActivationMode() {
     const mode = this._getKey("ACTIVATION_MODE");
     return mode === "push" ? "push" : "tap";

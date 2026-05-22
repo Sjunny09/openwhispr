@@ -656,6 +656,48 @@ class ClipboardManager {
     }
   }
 
+  /**
+   * Paste an image (Electron NativeImage) into the focused app. Mirrors
+   * pasteText but writes an image to the clipboard instead of text. The native
+   * paste path (pasteMacOS / pasteWindows / pasteLinux) only simulates Cmd+V and
+   * is content-agnostic, so an image pastes exactly like text. Used by the
+   * screenshot tray to drop captures into a chat input before the dictated text.
+   */
+  async pasteImage(image, options = {}) {
+    const platform = process.platform;
+    const allowClipboardFallback = options.allowClipboardFallback === true;
+    const shouldRestore = options.restoreClipboard !== false;
+    const originalClipboard = shouldRestore ? this._saveClipboard() : null;
+
+    if (!image || image.isEmpty()) {
+      throw new Error("Cannot paste empty image");
+    }
+    clipboard.writeImage(image);
+    this.safeLog("🖼️ Image copied to clipboard for paste");
+
+    if (platform === "darwin") {
+      const hasPermissions = await this.checkAccessibilityPermissions(allowClipboardFallback);
+      if (!hasPermissions) {
+        if (allowClipboardFallback) return;
+        throw new Error(
+          "Accessibility permissions required for automatic pasting. Image has been copied to clipboard - please paste manually with Cmd+V."
+        );
+      }
+      try {
+        await this.pasteMacOS(originalClipboard, options);
+      } catch (firstError) {
+        this.safeLog("⚠️ First image paste attempt failed, retrying...", firstError?.message);
+        clipboard.writeImage(image);
+        await new Promise((r) => setTimeout(r, 200));
+        await this.pasteMacOS(originalClipboard, options);
+      }
+    } else if (platform === "win32") {
+      await this.pasteWindows(originalClipboard);
+    } else {
+      await this.pasteLinux(originalClipboard, options);
+    }
+  }
+
   async pasteMacOS(originalClipboard, options = {}) {
     const fastPasteBinary = this.resolveFastPasteBinary();
     const useFastPaste = !!fastPasteBinary;

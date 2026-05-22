@@ -11,6 +11,7 @@ const {
   MAIN_WINDOW_CONFIG,
   CONTROL_PANEL_CONFIG,
   AGENT_OVERLAY_CONFIG,
+  FREEZE_OVERLAY_CONFIG,
   NOTIFICATION_WINDOW_CONFIG,
   TRANSCRIPTION_PREVIEW_CONFIG,
   TRANSCRIPTION_PREVIEW_SIZE_LIMITS,
@@ -23,6 +24,7 @@ class WindowManager {
     this.mainWindow = null;
     this.controlPanelWindow = null;
     this.agentWindow = null;
+    this.annotationWindow = null;
     this.notificationWindow = null;
     this._notificationTimeout = null;
     this.transcriptionPreviewWindow = null;
@@ -183,10 +185,12 @@ class WindowManager {
     return { success: true, bounds: { x: newX, y: newY, ...newSize } };
   }
 
-  async loadWindowContent(window, isControlPanel = false, isAgent = false) {
+  async loadWindowContent(window, isControlPanel = false, isAgent = false, queryOverride = null) {
     if (process.env.NODE_ENV === "development") {
       let appUrl = DevServerManager.getAppUrl(isControlPanel);
-      if (isAgent) {
+      if (queryOverride) {
+        appUrl = `${DevServerManager.getAppUrl(false)}?${queryOverride}`;
+      } else if (isAgent) {
         appUrl = `${DevServerManager.getAppUrl(false)}?agent=true`;
       }
       await DevServerManager.waitForDevServer();
@@ -197,7 +201,10 @@ class WindowManager {
         throw new Error("Failed to get app file path");
       }
 
-      if (isAgent) {
+      if (queryOverride) {
+        const [k, v] = queryOverride.split("=");
+        fileInfo.query = { [k]: v ?? "true" };
+      } else if (isAgent) {
         fileInfo.query = { agent: "true" };
       }
 
@@ -697,6 +704,70 @@ class WindowManager {
     });
 
     await this.loadWindowContent(this.agentWindow, false, true);
+  }
+
+  // Drag-annotation overlay (phase 2). Created hidden at startup so it is loaded
+  // and ready; shown on the cursor display with a frozen snapshot to draw on.
+  async createAnnotationWindow() {
+    if (this.annotationWindow && !this.annotationWindow.isDestroyed()) {
+      return;
+    }
+
+    this.annotationWindow = new BrowserWindow(FREEZE_OVERLAY_CONFIG);
+
+    this.annotationWindow.once("ready-to-show", () => {
+      WindowPositionUtil.setupAlwaysOnTop(this.annotationWindow);
+    });
+
+    this.annotationWindow.on("closed", () => {
+      this.annotationWindow = null;
+    });
+
+    await this.loadWindowContent(this.annotationWindow, false, false, "annotate=true");
+  }
+
+  isAnnotationVisible() {
+    return !!(
+      this.annotationWindow &&
+      !this.annotationWindow.isDestroyed() &&
+      this.annotationWindow.isVisible()
+    );
+  }
+
+  // Show the overlay covering the cursor's display with the frozen snapshot.
+  // snapshot = { dataUrl, display: { id, bounds, scaleFactor } } from screenshotManager.
+  showFreezeOverlay(snapshot) {
+    if (!this.annotationWindow || this.annotationWindow.isDestroyed() || !snapshot) return;
+
+    const bounds = snapshot.display?.bounds || screen.getPrimaryDisplay().bounds;
+    this.annotationWindow.setBounds(bounds);
+    WindowPositionUtil.setupAlwaysOnTop(this.annotationWindow);
+    // Stronger z-level so the overlay covers the menubar and fullscreen apps.
+    if (process.platform === "darwin") {
+      this.annotationWindow.setAlwaysOnTop(true, "screen-saver");
+    }
+
+    this.annotationWindow.webContents.send("annotation-init", {
+      dataUrl: snapshot.dataUrl,
+      scaleFactor: snapshot.display?.scaleFactor || 1,
+      width: bounds.width,
+      height: bounds.height,
+    });
+
+    this.annotationWindow.show();
+    this.annotationWindow.focus();
+  }
+
+  hideAnnotationOverlay() {
+    if (!this.annotationWindow || this.annotationWindow.isDestroyed()) return;
+    this.annotationWindow.webContents.send("annotation-reset");
+    this.annotationWindow.hide();
+  }
+
+  // Second press of the drag hotkey: tell the renderer to commit and export.
+  finishAnnotation() {
+    if (!this.isAnnotationVisible()) return;
+    this.annotationWindow.webContents.send("annotation-finish");
   }
 
   toggleAgentOverlay() {
