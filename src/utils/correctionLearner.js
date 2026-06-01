@@ -127,14 +127,18 @@ function findSubstitutions(origWords, editedWords) {
 }
 
 /**
- * Extract corrected words from a user's edits to pasted transcription text.
+ * Extract corrected word PAIRS from a user's edits to pasted transcription text.
+ * Each pair is the misheard word and the word the user replaced it with, e.g.
+ * `{ from: "company kick", to: "CompanyKick" }`. Same filtering as
+ * extractCorrections — this is the underlying function, the word-only variant
+ * is derived from it.
  *
  * @param {string} originalText - The text that was originally pasted (from transcription)
  * @param {string} fieldValue - The current value of the text field (after user edits)
  * @param {string[]} existingDictionary - Words already in the custom dictionary
- * @returns {string[]} Array of corrected words to add to the dictionary
+ * @returns {{from: string, to: string}[]} Misheard→corrected substitution pairs
  */
-function extractCorrections(originalText, fieldValue, existingDictionary) {
+function extractCorrectionPairs(originalText, fieldValue, existingDictionary) {
   if (!originalText || !fieldValue) return [];
   if (originalText === fieldValue) return [];
 
@@ -169,11 +173,66 @@ function extractCorrections(originalText, fieldValue, existingDictionary) {
     const maxLen = Math.max(origWord.length, correctedWord.length);
     if (dist / maxLen > 0.65) continue;
 
-    results.push(correctedWord);
+    results.push({ from: origWord, to: correctedWord });
     seenCorrections.add(normalizedCorrected);
   }
 
   return results;
 }
 
-module.exports = { extractCorrections };
+/**
+ * Extract corrected words from a user's edits to pasted transcription text.
+ * Returns just the corrected words (added to the dictionary for Whisper biasing).
+ *
+ * @param {string} originalText - The text that was originally pasted (from transcription)
+ * @param {string} fieldValue - The current value of the text field (after user edits)
+ * @param {string[]} existingDictionary - Words already in the custom dictionary
+ * @returns {string[]} Array of corrected words to add to the dictionary
+ */
+function extractCorrections(originalText, fieldValue, existingDictionary) {
+  return extractCorrectionPairs(originalText, fieldValue, existingDictionary).map((p) => p.to);
+}
+
+/** Escape a string for safe insertion into a RegExp. */
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Apply learned misheard→corrected replacements to a transcript deterministically.
+ * Matching is whole-word and case-insensitive, with Unicode-aware boundaries so
+ * accented names (e.g. "Sinéad") and Dutch words match correctly. Longer "heard"
+ * phrases are applied first to avoid partial overlaps. Idempotent in practice:
+ * once "company kick" becomes "CompanyKick", a second pass finds nothing to change.
+ *
+ * @param {string} text - The transcript to correct
+ * @param {{heard: string, replacement: string}[]} replacements - Learned pairs
+ * @returns {string} The corrected transcript
+ */
+function applyReplacements(text, replacements) {
+  if (typeof text !== "string" || !text || !Array.isArray(replacements)) return text;
+
+  const valid = replacements
+    .filter(
+      (r) =>
+        r &&
+        typeof r.heard === "string" &&
+        r.heard.trim().length > 0 &&
+        typeof r.replacement === "string"
+    )
+    .sort((a, b) => b.heard.length - a.heard.length);
+
+  let result = text;
+  for (const { heard, replacement } of valid) {
+    // (?<![...]) / (?![...]) are Unicode-aware word boundaries: no letter, digit
+    // or underscore directly adjacent. Avoids matching "kick" inside "kickboks".
+    const pattern = new RegExp(
+      `(?<![\\p{L}\\p{N}_])${escapeRegExp(heard)}(?![\\p{L}\\p{N}_])`,
+      "giu"
+    );
+    result = result.replace(pattern, replacement);
+  }
+  return result;
+}
+
+module.exports = { extractCorrections, extractCorrectionPairs, applyReplacements };

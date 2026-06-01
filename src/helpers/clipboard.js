@@ -617,14 +617,39 @@ class ClipboardManager {
           throw new Error(errorMsg);
         }
 
-        this.safeLog("✅ Permissions granted, attempting to paste...");
-        try {
-          await this.pasteMacOS(originalClipboard, options);
-        } catch (firstError) {
-          this.safeLog("⚠️ First paste attempt failed, retrying...", firstError?.message);
-          clipboard.writeText(text);
-          await new Promise((r) => setTimeout(r, 200));
-          await this.pasteMacOS(originalClipboard, options);
+        // Some apps silently swallow Cmd+V (text never lands even though the
+        // paste "succeeds"). For those, force-type bypasses paste entirely and
+        // synthesizes real key events. Opt in per-call via options.forceType or
+        // globally via OPENWHISPR_FORCE_TYPE=1 in .env.
+        const forceType = options.forceType === true || process.env.OPENWHISPR_FORCE_TYPE === "1";
+        if (forceType) {
+          this.safeLog("⌨️ Force-type enabled, typing text directly instead of pasting");
+          await this.typeTextMacOS(text);
+          method = "keystroke";
+          if (originalClipboard != null) {
+            setTimeout(() => this._restoreClipboard(originalClipboard), RESTORE_DELAYS.darwin);
+          }
+        } else {
+          this.safeLog("✅ Permissions granted, attempting to paste...");
+          try {
+            await this.pasteMacOS(originalClipboard, options);
+          } catch (firstError) {
+            this.safeLog("⚠️ First paste attempt failed, retrying...", firstError?.message);
+            clipboard.writeText(text);
+            await new Promise((r) => setTimeout(r, 200));
+            try {
+              await this.pasteMacOS(originalClipboard, options);
+            } catch (secondError) {
+              // Cmd+V failed twice — fall back to typing the text directly, which
+              // works in apps that ignore the paste shortcut.
+              this.safeLog("⌨️ Cmd+V failed twice, falling back to typing", secondError?.message);
+              await this.typeTextMacOS(text);
+              method = "keystroke";
+              if (originalClipboard != null) {
+                setTimeout(() => this._restoreClipboard(originalClipboard), RESTORE_DELAYS.darwin);
+              }
+            }
+          }
         }
       } else if (platform === "win32") {
         const winFastPaste = this.resolveWindowsFastPasteBinary();
@@ -823,6 +848,94 @@ class ClipboardManager {
           )
         );
       }, 3000);
+    });
+  }
+
+  /** Escape a string for safe embedding inside an AppleScript double-quoted literal. */
+  _escapeAppleScriptString(str) {
+    return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  }
+
+  /**
+   * Type text directly into the focused app via System Events keystroke, instead
+   * of simulating Cmd+V. This is the last-resort fallback for apps that swallow
+   * Cmd+V (some Electron/Java/custom UIs) — typing synthesizes real key events the
+   * app can't ignore. Still blocked by macOS Secure Input (password fields).
+   *
+   * Newlines become Return key presses; long lines are chunked so no single
+   * AppleScript argument gets unwieldy. Slower than paste, hence fallback-only.
+   */
+  async typeTextMacOS(text) {
+    if (process.platform !== "darwin" || typeof text !== "string" || text.length === 0) {
+      return;
+    }
+
+    const CHUNK = 200;
+    const args = [];
+    const lines = text.split(/\r\n|\r|\n/);
+    lines.forEach((line, lineIdx) => {
+      if (lineIdx > 0) {
+        // Return key between lines.
+        args.push("-e", 'tell application "System Events" to key code 36');
+      }
+      for (let i = 0; i < line.length; i += CHUNK) {
+        const chunk = this._escapeAppleScriptString(line.slice(i, i + CHUNK));
+        args.push("-e", `tell application "System Events" to keystroke "${chunk}"`);
+      }
+    });
+
+    if (args.length === 0) return;
+
+    // Typing takes longer than a single paste; scale the timeout with length.
+    const timeoutMs = Math.min(20000, 3000 + text.length * 10);
+
+    return new Promise((resolve, reject) => {
+      const proc = spawn("osascript", args);
+      let errorOutput = "";
+      let hasTimedOut = false;
+
+      proc.stderr.on("data", (data) => {
+        errorOutput += data.toString();
+      });
+
+      proc.on("close", (code) => {
+        if (hasTimedOut) return;
+        clearTimeout(timeoutId);
+        proc.removeAllListeners();
+        if (code === 0) {
+          this.safeLog("Text typed successfully via System Events keystroke");
+          resolve();
+        } else {
+          this.accessibilityCache = { value: null, expiresAt: 0 };
+          reject(
+            new Error(
+              `Typing failed (code ${code})${errorOutput ? `: ${errorOutput.trim()}` : ""}. Text is copied to clipboard - please paste manually with Cmd+V.`
+            )
+          );
+        }
+      });
+
+      proc.on("error", (error) => {
+        if (hasTimedOut) return;
+        clearTimeout(timeoutId);
+        proc.removeAllListeners();
+        reject(
+          new Error(
+            `Type command failed: ${error.message}. Text is copied to clipboard - please paste manually with Cmd+V.`
+          )
+        );
+      });
+
+      const timeoutId = setTimeout(() => {
+        hasTimedOut = true;
+        killProcess(proc, "SIGKILL");
+        proc.removeAllListeners();
+        reject(
+          new Error(
+            "Typing operation timed out. Text is copied to clipboard - please paste manually with Cmd+V."
+          )
+        );
+      }, timeoutMs);
     });
   }
 

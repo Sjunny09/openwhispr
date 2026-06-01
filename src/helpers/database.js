@@ -82,6 +82,17 @@ class DatabaseManager {
         )
       `);
 
+      // Deterministic misheard→corrected replacements learned from user edits.
+      // `heard` is stored lowercased so matching/uniqueness is case-insensitive.
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS correction_replacements (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          heard TEXT NOT NULL UNIQUE,
+          replacement TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS notes (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -763,6 +774,81 @@ class DatabaseManager {
     } catch (error) {
       debugLogger.error("Error setting dictionary", { error: error.message }, "database");
       throw error;
+    }
+  }
+
+  /** Returns learned misheard→corrected pairs as [{ heard, replacement }]. */
+  getReplacements() {
+    try {
+      if (!this.db) {
+        throw new Error("Database not initialized");
+      }
+      const stmt = this.db.prepare(
+        "SELECT heard, replacement FROM correction_replacements ORDER BY id ASC"
+      );
+      return stmt.all();
+    } catch (error) {
+      debugLogger.error("Error getting replacements", { error: error.message }, "database");
+      return [];
+    }
+  }
+
+  /**
+   * Upsert misheard→corrected pairs. Accepts [{ from, to }] (as produced by the
+   * correction learner). `from` is normalized to lowercase for the `heard` key,
+   * so re-learning the same mishearing updates the replacement instead of duplicating.
+   */
+  addReplacements(pairs) {
+    try {
+      if (!this.db) {
+        throw new Error("Database not initialized");
+      }
+      const upsert = this.db.prepare(`
+        INSERT INTO correction_replacements (heard, replacement)
+        VALUES (?, ?)
+        ON CONFLICT(heard) DO UPDATE SET
+          replacement = excluded.replacement,
+          created_at = CURRENT_TIMESTAMP
+      `);
+      const transaction = this.db.transaction((list) => {
+        for (const pair of list) {
+          const heard = typeof pair?.from === "string" ? pair.from.trim().toLowerCase() : "";
+          const replacement = typeof pair?.to === "string" ? pair.to.trim() : "";
+          // Skip no-op pairs (case-only edits) — they'd loop on every transcript.
+          if (heard && replacement && heard !== replacement.toLowerCase()) {
+            upsert.run(heard, replacement);
+          }
+        }
+      });
+      transaction(pairs);
+      return { success: true };
+    } catch (error) {
+      debugLogger.error("Error adding replacements", { error: error.message }, "database");
+      return { success: false, error: error.message };
+    }
+  }
+
+  /** Removes replacement rows whose corrected value matches any of `replacements` (case-insensitive). Used by undo. */
+  removeReplacementsByValue(replacements) {
+    try {
+      if (!this.db || !Array.isArray(replacements) || replacements.length === 0) {
+        return { success: true };
+      }
+      const del = this.db.prepare(
+        "DELETE FROM correction_replacements WHERE LOWER(replacement) = ?"
+      );
+      const transaction = this.db.transaction((list) => {
+        for (const value of list) {
+          if (typeof value === "string" && value.trim()) {
+            del.run(value.trim().toLowerCase());
+          }
+        }
+      });
+      transaction(replacements);
+      return { success: true };
+    } catch (error) {
+      debugLogger.error("Error removing replacements", { error: error.message }, "database");
+      return { success: false, error: error.message };
     }
   }
 

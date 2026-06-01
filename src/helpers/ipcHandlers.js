@@ -490,6 +490,26 @@ class IPCHandlers {
     }
   }
 
+  /**
+   * Apply learned deterministic replacements to a transcript. Cached in-process;
+   * the cache is invalidated whenever replacements are added (auto-learn) or
+   * removed (undo). Returns the input unchanged if anything goes wrong.
+   */
+  _applyReplacements(text) {
+    if (typeof text !== "string" || !text) return text;
+    try {
+      if (!this._replacementsCache) {
+        this._replacementsCache = this.databaseManager.getReplacements();
+      }
+      if (!this._replacementsCache.length) return text;
+      const { applyReplacements } = require("../utils/correctionLearner");
+      return applyReplacements(text, this._replacementsCache);
+    } catch (error) {
+      debugLogger.debug("[AutoLearn] applyReplacements failed", { error: error.message });
+      return text;
+    }
+  }
+
   _resolveByokModel(provider, configuredModel) {
     const trimmed = (configuredModel || "").trim();
     if (provider === "custom") return trimmed || "whisper-1";
@@ -604,9 +624,10 @@ class IPCHandlers {
     this._autoLearnLatestData = null;
 
     try {
-      const { extractCorrections } = require("../utils/correctionLearner");
+      const { extractCorrectionPairs } = require("../utils/correctionLearner");
       const currentDict = this._getDictionarySafe();
-      const corrections = extractCorrections(originalText, newFieldValue, currentDict);
+      const pairs = extractCorrectionPairs(originalText, newFieldValue, currentDict);
+      const corrections = pairs.map((p) => p.to);
       debugLogger.debug("[AutoLearn] Corrections result", {
         corrections,
         dictSize: currentDict.length,
@@ -620,6 +641,11 @@ class IPCHandlers {
           debugLogger.debug("[AutoLearn] Failed to save dictionary", { error: saveResult.error });
           return;
         }
+
+        // Persist the misheard→corrected pairs so the same mishearing is fixed
+        // deterministically next time (not just nudged via the Whisper prompt).
+        this.databaseManager.addReplacements(pairs);
+        this._replacementsCache = null;
 
         this.broadcastToWindows("dictionary-updated", updatedDict);
 
@@ -742,6 +768,9 @@ class IPCHandlers {
     });
 
     ipcMain.handle("db-save-transcription", async (event, text, rawText, options) => {
+      // Correct the stored display text to match what was pasted; leave rawText
+      // as the verbatim transcription so history still shows what Whisper heard.
+      text = this._applyReplacements(text);
       const result = this.databaseManager.saveTranscription(text, rawText, options);
       if (result?.success && result?.transcription) {
         setImmediate(() => {
@@ -889,6 +918,10 @@ class IPCHandlers {
           });
           return { success: false };
         }
+        // Also drop the deterministic replacement rows for these corrections,
+        // otherwise they'd keep rewriting transcripts after the undo.
+        this.databaseManager.removeReplacementsByValue(validWords);
+        this._replacementsCache = null;
         this.broadcastToWindows("dictionary-updated", updatedDict);
         debugLogger.debug("[AutoLearn] Undo: removed words", { words: validWords });
         return { success: true };
@@ -1448,6 +1481,10 @@ class IPCHandlers {
     });
 
     ipcMain.handle("paste-text", async (event, text, options) => {
+      // Apply learned deterministic corrections before anything else, so the
+      // pasted text AND the auto-learn baseline both use the corrected version.
+      text = this._applyReplacements(text);
+
       const mainWindow = this.windowManager?.mainWindow;
       const targetPid = this.textEditMonitor?.lastTargetPid || null;
 
