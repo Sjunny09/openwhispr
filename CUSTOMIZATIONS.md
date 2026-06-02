@@ -59,15 +59,19 @@ Persistente waarden in `~/Library/Application Support/open-whispr/.env`
 | Functie | Toets | Env-key |
 |---|---|---|
 | Opnemen / dicteren | rechter Command | `DICTATION_KEY=RightCommand` |
-| Printscreen (region capture naar tray) | Cmd + Option + 2 | `SCREENSHOT_KEY=CommandOrControl+Alt+2` |
-| Screenshot + pijlen (freeze + drag-annotatie) | Cmd + Option + 1 | `DRAG_KEY=CommandOrControl+Alt+1` |
+| Printscreen (region capture naar tray) | Control + Shift + 2 | `SCREENSHOT_KEY=Control+Shift+2` |
+| Screenshot + pijlen (freeze + drag-annotatie) | Control + Shift + 1 | `DRAG_KEY=Control+Shift+1` |
+
+**Waarom geen Command in de screenshot-toetsen:** de opname-toets is (rechter) Command.
+Elke screenshot-sneltoets met Command erin (zoals `Cmd+Option+2` of de upstream-default
+`Cmd+Shift+2`) zet bij het indrukken de opname uit. Daarom Command-vrij: `Control+Shift`.
 
 **Waarom niet rechter-Option-combinaties (oorspronkelijke wens):** de native laag
 ondersteunt alleen *losse* rechter-modifiers (zoals `RightCommand` voor opnemen), geen
 combinaties met een rechter-modifier. De screenshot/drag-sloten draaien op standaard
 Electron-accelerators, die geen links/rechts-onderscheid kennen. En `Option+pijl` /
 `Cmd+Option+pijl` zijn al door macOS/browsers bezet (woord-navigatie, tab-wisselen),
-dus die zijn vermeden. Vandaar Option + cijfer.
+dus die zijn vermeden.
 
 Aanpassen kan in-app via Instellingen → hotkeys (schrijft dezelfde env-keys en
 registreert live), of door bovenstaande regels in `.env` te zetten en te herstarten.
