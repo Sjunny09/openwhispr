@@ -51,6 +51,27 @@ geen fout, maar de tekst landt niet.
 iets trager. Per-app maken is een mogelijke vervolgstap. Secure Input (wachtwoordvelden)
 blokkeert ook typen, daar is niets aan te doen.
 
+## Hotkeys (John's opzet)
+
+Persistente waarden in `~/Library/Application Support/open-whispr/.env`
+(env-keys `DICTATION_KEY`, `SCREENSHOT_KEY`, `DRAG_KEY`):
+
+| Functie | Toets | Env-key |
+|---|---|---|
+| Opnemen / dicteren | rechter Command | `DICTATION_KEY=RightCommand` |
+| Printscreen (region capture naar tray) | Cmd + Option + 2 | `SCREENSHOT_KEY=CommandOrControl+Alt+2` |
+| Screenshot + pijlen (freeze + drag-annotatie) | Cmd + Option + 1 | `DRAG_KEY=CommandOrControl+Alt+1` |
+
+**Waarom niet rechter-Option-combinaties (oorspronkelijke wens):** de native laag
+ondersteunt alleen *losse* rechter-modifiers (zoals `RightCommand` voor opnemen), geen
+combinaties met een rechter-modifier. De screenshot/drag-sloten draaien op standaard
+Electron-accelerators, die geen links/rechts-onderscheid kennen. En `Option+pijl` /
+`Cmd+Option+pijl` zijn al door macOS/browsers bezet (woord-navigatie, tab-wisselen),
+dus die zijn vermeden. Vandaar Option + cijfer.
+
+Aanpassen kan in-app via Instellingen → hotkeys (schrijft dezelfde env-keys en
+registreert live), of door bovenstaande regels in `.env` te zetten en te herstarten.
+
 ## Operationele valkuilen (hard geleerd)
 
 - **Bron vs gebouwde app.** De dagelijkse app is `/Applications/OpenWhispr.app`
